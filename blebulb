@@ -1,0 +1,218 @@
+#!/bin/bash
+#
+# blebulb v1.0 - Simple BASH script to
+# control Eurodomest BLE RGB led bulbs.
+#
+# Depends on the 'gatttool' utility from
+# the BlueZ package.
+#
+# GregNau 2017
+
+# Full path of 'gatttool'
+GATTTOOL='/usr/bin/gatttool'
+
+# MAC address of the bulb
+MAC="FC:58:FA:F1:CF:91"
+
+# Var's to hold the individual leds level
+red="0000"
+#red_state=`awk 'FNR==1' /tmp/edrgbled.state`
+red_state=0
+green="0000"
+#green_state=`awk 'FNR==2' /tmp/edrgbled.state`
+green_state=0
+blue="0000"
+#blue_state=`awk 'FNR==3' /tmp/edrgbled.state`
+blue_state=0
+white="01FF"
+white_state=255
+
+function readvalues {
+	local file="/tmp/blebulb.state"
+
+	# Check if file exists...
+	if [ -f "$file" ]; then
+	    red_state=`awk 'FNR==1' $file`
+	    green_state=`awk 'FNR==2' $file`
+	    blue_state=`awk 'FNR==3' $file`
+	    white_state=`awk 'FNR==4' $file`
+	fi
+}
+
+# Save color level values in temporary file
+function storevalues {
+    local file="/tmp/blebulb.state"
+
+    # Check if file already exists...
+    if [ ! -f "$file" ]; then
+         # ...if not create the file
+         touch "$file"
+    fi
+
+    echo "$red_state" > "$file"
+    echo "$green_state" >> "$file"
+    echo "$blue_state" >> "$file"
+    echo "$white_state" >> "$file"
+}
+
+function sendvalues {
+    message=$green"0100"$blue$red$white
+
+    echo $message
+
+    # Send values to the device and only display errors
+    $GATTTOOL -b $MAC --char-write-req -a 0x002a -n $message > /dev/null
+
+    red="0000"
+    green="0000"
+    blue="0000"
+    white="0000"
+}
+
+# Function to control leds by color directly (eg.: setled red 255)
+function setled {
+    # Convert percents to 256 steps
+    #level=`echo "scale=0; $2*2.55/1" | bc`
+
+    # Calculate hex values and add leading zero if necessary
+    if [ "$2" -eq 0 ]; then
+	export $1="0000"
+	export $1"_state"=0
+    elif [ "$2" -lt 16 ]; then
+	export $1="010"`echo "obase=16; $2" | bc`
+	export $1_state="$2"
+    else
+	export $1="01"`echo "obase=16; $2" | bc`
+	export $1_state="$2"
+    fi
+}
+
+# Set RGB levels and/or White (eg.: setrgb 80 80 80 or setrgb 255)
+function setrgb {
+    case "$#" in
+	1)	setled white $1 && sendvalues;;  # 1 value controls White only
+	3)	setled red $1 && setled green $2 && setled blue $3 && sendvalues;;  # 3 values recognized as RGB levels
+	4)	setled red $1 && setled green $2 && setled blue $3 && setled white $4 && sendvalues;;  # 4 values are RGB + White levels
+	*)	echo -e "blebulb: invalid number of levels\n1 value to set white only, 3 values to set RGB or 4 values to set RGB-W." && exit;;
+    esac
+}
+
+# Set predefined colors by name (eg.: setcolor lime)
+function setcolor {
+    case "$1" in
+	aqua)	fade 0 255 255 0;;
+	black)	fade 0 0 0 0;;  # WTF?!
+	blue)	fade 0 0 255 0;;
+	fuchsia) fade 255 0 255 0;;
+	gray)	fade 128 128 128 0;;
+	green)	fade 0 128 0 0;;
+	lime)	fade 0 255 0 0;;
+	maroon)	fade 128 0 0 0;;
+	navy)	fade 0 0 128 0;;
+	olive)	fade 128 128 0 0;;
+	purple)	fade 128 0 128 0;;
+	red)	fade 255 0 0 0;;
+	silver)	fade 192 192 192 0;;
+	teal)	fade 0 128 128 0;;
+	white)	fade 255 255 255 0;;
+	yellow)	fade 255 255 0 0;;
+	*)	echo -e "blebulb: unknown color\nPossible colors are:\n'aqua'\n'black'\n'blue'\n'fuchsia'\n'gray'\n'green'\n'lime'\n'maroon'\n'navy'\n'olive'\n'purple'\n'red'\n'silver'\n'teal'\n'white'\n'yellow'" && exit;;
+    esac
+}
+
+# Fade from the current color to the defined one (eg.: fade 128 0 255 0)
+function fade {
+    # Target intensity
+    red_target=$1
+    green_target=$2
+    blue_target=$3
+    white_target=$4
+
+    while [ ! $red_state -eq $red_target -o ! $green_state -eq $green_target -o ! $blue_state -eq $blue_target -o ! $white_state -eq $white_target ]; do
+
+	# RED
+	if [ $red_state -lt $red_target ]; then
+	    red_state=$((red_state+1))
+	    setled red $red_state
+	elif [ $red_state -gt $red_target ]; then
+	    red_state=$((red_state-1))
+	    setled red $red_state
+	else
+	    setled red $red_state
+	fi
+
+	# GREEN
+	if [ $green_state -lt $green_target ]; then
+	    green_state=$((green_state+1))
+	    setled green $green_state
+	elif [ $green_state -gt $green_target ]; then
+	    green_state=$((green_state-1))
+	    setled green $green_state
+	else
+	    setled green $green_state
+	fi
+
+	# BLUE
+	if [ $blue_state -lt $blue_target ]; then
+	    blue_state=$((blue_state+1))
+	    setled blue $blue_state
+	elif [ $blue_state -gt $blue_target ]; then
+	    blue_state=$((blue_state-1))
+	    setled blue $blue_state
+	else
+	    setled blue $blue_state
+	fi
+
+	# WHITE
+	if [ $white_state -lt $white_target ]; then
+	    white_state=$((white_state+1))
+	    setled white $white_state
+	elif [ $white_state -gt $white_target ]; then
+	    white_state=$((white_state-1))
+	    setled white $white_state
+	else
+	    setled white $white_state
+	fi
+
+	sendvalues
+    done
+}
+
+
+function display_help {
+    help_text="Usage: blebulb [OPTION]... [VALUE]...\n
+Control Eurodomest BLE RGB lamp.\n\n
+
+Options:\n
+  -s, --set #w	\t\tSet white level from 0-256\n
+	    \t#r #g #b \tSet an RGB level value (white off)\n
+	    \t#r #g #b #w \tSet and RGB-W level\n\n
+
+  -f, --fade #w	\t\tFade white level from 0-256\n
+	    \t#r #g #b \tFade to an RGB level value (white stays off)\n
+	    \t#r #g #b #w \tFade to an RGB-W level\n\n
+
+  -c, --color \$name	\tSet colors by name; like 'maroon', 'olive', 'aqua' ...\n
+  -h, --help	\t\tDisplay this help text\n\n
+
+Examples:\n
+  \tblebulb --set 100			\t\tSetting the white leds to 100\n
+  \tblebulb -s 25 25 25			\t\tMix a custom color with RGB code\n
+  \tblebulb -s 225 255 225 80		\tCustom ambient color with RGB-W code\n
+  \tblebulb -f 128 225 128 30		\tFade to a custom color from current state\n
+  \tblebulb --fade 255			\t\tFade to a custom color from current state\n
+"
+
+    echo -e $help_text
+}
+
+readvalues
+
+case "$1" in
+    -s|--set)	setrgb $2 $3 $4 $5 && storevalues;;
+    -f|--fade)	fade $2 $3 $4 $5 && storevalues;;
+    -c|--color)	setcolor $2 && storevalues;;
+    -h|--help)	display_help;;
+    --current)	echo $red_state $green_state $blue_state $white_state;;
+    *)		echo -e "blebulb: invalid option -- '$1'\nTry 'blebulb --help' for more information.";;
+esac

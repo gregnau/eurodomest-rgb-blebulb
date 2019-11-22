@@ -1,0 +1,21 @@
+Eurodomest (Shenzen) BLE RGB Led Bulb
+
+The device is using a simple protocol
+over Bluetooth Low Energy (BLE) connection.
+Messages are 20 characters long and can be
+divided into 5 groups. These are basically the
+state and dimlevels of the different leds.
+
+Example:
+
+MSG = GREEN HEAD BLUE RED  WHITE
+MSG =  01ff 0100 0000 01ff 0000
+
+The first 2 bytes of every color-groups are the
+state switches, 00 means off, while 01 means on.
+Afterwards comes the dimlevel in hex format, from
+00 to ff which is 256 steps. Only exception is the
+header group, what is possibly the global flag and
+another which has been used by turning on and off.
+
+GregNau @ 2017
